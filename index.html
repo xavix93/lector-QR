@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Lector QR • Cámara (robusto)</title>
+<title>Lector QR • Cámara (redirección)</title>
 <style>
   :root{color-scheme: dark;}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#0b1220;color:#e5e7eb;margin:0}
@@ -24,7 +24,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>📷 Lector QR • Cámara (robusto)</h1>
+  <h1>📷 Lector QR • Cámara (redirección)</h1>
   <div class="card">
     <div id="reader"></div>
     <div class="row">
@@ -33,13 +33,13 @@
       <button id="flip">Cambiar cámara</button>
     </div>
     <div id="diag" class="muted"></div>
-    <div class="muted">iOS/Android requieren HTTPS para usar la cámara en el navegador. Evita abrir dentro de WhatsApp/Instagram; usa Safari/Chrome.</div>
+    <div class="muted">Requiere HTTPS. Evita abrir dentro de WhatsApp/Instagram; usa Safari o Chrome.</div>
   </div>
 
   <div class="card">
-    <h1>Prueba manual (sin cámara)</h1>
+    <h1>Prueba manual</h1>
     <div class="row">
-      <input id="manual" type="text" placeholder="Pega aquí un token o URL de prueba y presiona Validar">
+      <input id="manual" type="text" placeholder="Pega aquí un token o URL y presiona Validar">
       <button id="btnManual">Validar</button>
     </div>
   </div>
@@ -47,7 +47,7 @@
   <div id="out" class="card"></div>
 </div>
 
-<!-- Cambia aquí tu /exec de Apps Script -->
+<!-- TU /exec DE APPS SCRIPT -->
 <script>
 const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbzQ5_g70DZ-ThfPOafiFj1AjX9Yta04srnvdv6E7sxTZ4irbHSsV5j6A8LbL96HDC3R3A/exec";
 </script>
@@ -55,19 +55,10 @@ const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbzQ5_g70DZ-ThfPO
 <!-- Fijamos versión del lector -->
 <script src="https://unpkg.com/html5-qrcode@2.3.10"></script>
 <script>
-function beep(ms=120){
-  try{
-    const ctx=new (window.AudioContext||window.webkitAudioContext)();
-    const o=ctx.createOscillator(), g=ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    o.frequency.value=880; o.start();
-    setTimeout(()=>{o.stop();ctx.close()},ms);
-  }catch(_){}
-}
 function paint(msg, cls){ document.getElementById("out").innerHTML = `<div class="status ${cls}">${msg}</div>`; }
 function diag(msg){ const d=document.getElementById("diag"); d.textContent = (d.textContent? d.textContent+"\n":"") + msg; }
 
-// Construye URL hacia el validador
+// Construye URL hacia Apps Script según lo que venga en el QR
 function buildUrlFromScan(text){
   text = (text||"").trim();
   if(!VALIDATOR_BASE) throw new Error("Falta configurar VALIDATOR_BASE.");
@@ -77,46 +68,15 @@ function buildUrlFromScan(text){
   return `${VALIDATOR_BASE}?c=${encodeURIComponent(text)}`; // por defecto: token
 }
 
-// Normaliza respuesta: quita HTML y acentos
-function normalizeText(s){
-  let t = String(s||"");
-  t = t.replace(/<script[\s\S]*?<\/script>/gi,'')
-       .replace(/<style[\s\S]*?<\/style>/gi,'')
-       .replace(/<[^>]+>/g,' ')
-       .replace(/\s+/g,' ')
-       .trim();
-  t = t.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  return t.toUpperCase();
-}
-
-async function validate(decoded){
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), 10000); // 10s timeout
+// *** Opción A: REDIRECCIÓN ***
+// No hacemos fetch (evita CORS). Abrimos directamente el validador con html=1.
+function validate(decoded){
   try{
-    const url = buildUrlFromScan(decoded);
-    diag("Validando: " + url);
-    const r = await fetch(url, {cache:"no-store", signal: controller.signal});
-    const raw = await r.text();
-    const T = normalizeText(raw); // "VALIDA", "YA_USADA", "INVALIDA", "ERR: ..."
-
-    const isErr   = /\bERR/.test(T) || /FALTA\s*\?\s*C=/.test(T);
-    const isUsed  = /\bYA[_\s]*USADA\b/.test(T) || /\bYA[_\s]*UTILIZADA\b/.test(T);
-    const isInv   = /\bINVALIDA\b/.test(T);
-    const isOk    = /\bVALIDA\b/.test(T) && !isInv && !isUsed;
-
-    if (isOk)      paint("✅ VÁLIDA • acceso permitido","ok");
-    else if (isUsed)  paint("⚠️ YA usada","warn");
-    else if (isInv)   paint("❌ INVÁLIDA","bad");
-    else if (isErr)   paint("❌ Error del validador:\n"+raw,"bad");
-    else              paint("ℹ️ Respuesta del servidor:\n"+raw,"bad");
-
-    navigator.vibrate && navigator.vibrate(80); beep();
+    const base = buildUrlFromScan(decoded);
+    const url  = base + (base.includes("?") ? "&" : "?") + "html=1";
+    window.location.href = url; // misma pestaña (o usa window.open(url, '_blank') para nueva)
   }catch(e){
-    if (e.name === 'AbortError') paint("❌ Sin respuesta (timeout). Revisa conexión/URL).","bad");
-    else paint("❌ Error: "+e.message,"bad");
-    diag("Fetch error: " + e.name + " - " + e.message);
-  } finally {
-    clearTimeout(timer);
+    paint("❌ Error al construir URL: "+e.message, "bad");
   }
 }
 
@@ -124,36 +84,33 @@ let lastText="", lastAt=0, html5QrCode, cameras=[], currentCamIndex=0;
 
 function onScanSuccess(text){
   const now=Date.now();
-  if(text===lastText && (now-lastAt)<1500) return;
+  if(text===lastText && (now-lastAt)<1500) return; // evita doble lectura
   lastText=text; lastAt=now;
   validate(text);
 }
 
-// Intenta arrancar por deviceId, si falla prueba facingMode
+// Inicio robusto: intenta deviceId y si falla, facingMode: environment (iOS)
 async function start(){
   try{
-    // Chequeos rápidos
     diag("isSecureContext=" + (window.isSecureContext ? "true":"false"));
-    diag("mediaDevices=" + (!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)));
     if (!window.isSecureContext) {
-      paint("❌ Debes abrir esta página por HTTPS (no file://).","bad");
+      paint("❌ Debes alojar esta página en HTTPS.", "bad");
       return;
     }
 
-    // Pide permiso de antemano (mejor UX en iOS)
+    // Pide permiso (mejor UX en iOS)
     try{
       await navigator.mediaDevices.getUserMedia({ video: true });
       diag("Permiso de cámara otorgado.");
     }catch(e){
       diag("getUserMedia preliminar: " + e.name + " - " + e.message);
-      // seguimos igual; algunos navegadores piden permiso al iniciar html5-qrcode
     }
 
     if(!html5QrCode) html5QrCode=new Html5Qrcode("reader");
 
-    // 1) Intento por deviceId (si hay)
     cameras = await Html5Qrcode.getCameras();
     diag("Cámaras detectadas: " + (cameras?.length || 0));
+
     if (cameras && cameras.length){
       const id=cameras[currentCamIndex]?.id || cameras[0].id;
       try{
@@ -165,23 +122,15 @@ async function start(){
       }
     }
 
-    // 2) Fallback iOS: facingMode environment
-    try{
-      await html5QrCode.start({facingMode:"environment"}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
-      paint("Cámara iniciada (facingMode: environment)","ok");
-      return;
-    }catch(e2){
-      diag("start(facingMode) falló: " + e2.message);
-      throw e2; // caer al catch principal
-    }
+    // Fallback iOS
+    await html5QrCode.start({facingMode:"environment"}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
+    paint("Cámara iniciada (facingMode: environment)","ok");
+
   }catch(e){
     paint("❌ No se pudo iniciar la cámara: " + e.message, "bad");
     diag("Error start(): " + e.name + " - " + e.message);
     if (/NotAllowedError/i.test(e.name) || /Permission|denied/i.test(e.message)){
-      diag("Dale permiso de cámara en el navegador (Ajustes > Safari/Chrome > Cámara > Permitir).");
-    }
-    if (!window.isSecureContext){
-      diag("Debes alojar la página en HTTPS (GitHub Pages, Netlify, Vercel, etc.).");
+      diag("Dale permiso de cámara al sitio (Ajustes del navegador).");
     }
   }
 }
@@ -203,7 +152,7 @@ document.getElementById("start").onclick=start;
 document.getElementById("stop").onclick=stop;
 document.getElementById("flip").onclick=flip;
 
-// Validación manual
+// Validación manual (también redirige)
 document.getElementById("btnManual").onclick=()=>{
   const t = document.getElementById("manual").value.trim();
   if(!t) return paint("Escribe un token o URL primero.","warn");
@@ -212,3 +161,4 @@ document.getElementById("btnManual").onclick=()=>{
 </script>
 </body>
 </html>
+

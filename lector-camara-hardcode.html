@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Lector QR • Cámara (Hardcode)</title>
+<style>
+  :root{color-scheme: dark;}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#0b1220;color:#e5e7eb;margin:0}
+  .wrap{max-width:720px;margin:0 auto;padding:16px}
+  .card{background:#0f172a;border:1px solid #1f2937;border-radius:14px;padding:16px;margin-top:16px}
+  h1{font-size:20px;margin:0 0 8px}
+  .muted{color:#9ca3af;font-size:12px;margin-top:6px}
+  .status{margin-top:12px;padding:12px;border-radius:10px;text-align:center}
+  .ok{background:#022c22;color:#a7f3d0;border:1px solid #065f46}
+  .warn{background:#3a1d06;color:#fde68a;border:1px solid #b45309}
+  .bad{background:#2b0d0d;color:#fecaca;border:1px solid #991b1b}
+  button{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;cursor:pointer}
+  #reader{width:100%;min-height:320px}
+  .row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📷 Lector QR • Cámara</h1>
+  <div class="card">
+    <div id="reader"></div>
+    <div class="row">
+      <button id="start">Iniciar cámara</button>
+      <button id="stop">Detener</button>
+      <button id="flip">Cambiar cámara</button>
+    </div>
+    <div class="muted">iOS/Android requieren HTTPS para usar la cámara en el navegador.</div>
+  </div>
+  <div id="out" class="card"></div>
+</div>
+
+<!-- 1) EDITA SOLO ESTA CONSTANTE CON TU URL /exec DE APPS SCRIPT -->
+<script>
+const VALIDATOR_BASE = "https://script.google.com/macros/s/TU_ID/exec"; // <-- cámbiala aquí
+</script>
+<!-- FIN: EDICIÓN -->
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script>
+function beep(ms=120){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
+  o.frequency.value=880; o.start(); setTimeout(()=>{o.stop();ctx.close()},ms);}catch(_){}} 
+function paint(msg, cls){ document.getElementById("out").innerHTML = `<div class="status ${cls}">${msg}</div>`; }
+function buildUrlFromScan(text){
+  text = (text||"").trim();
+  if(!VALIDATOR_BASE) throw new Error("Falta configurar VALIDATOR_BASE en el archivo.");
+  if(/^https?:\/\//i.test(text)) return text; // el QR ya trae URL completa
+  if (/(^|[?&])n=.+&c=.+/i.test(text)) return `${VALIDATOR_BASE}?${text.replace(/^.*\?/,'')}`;
+  if (text.includes("|")){ const [n,c]=text.split("|"); return `${VALIDATOR_BASE}?n=${encodeURIComponent(n)}&c=${encodeURIComponent(c)}`; }
+  return `${VALIDATOR_BASE}?c=${encodeURIComponent(text)}`; // por defecto tratamos el QR como 'token'
+}
+async function validate(decoded){
+  try{
+    const url = buildUrlFromScan(decoded);
+    const r = await fetch(url, {cache:"no-store"});
+    const body = (await r.text()).toLowerCase();
+    if (body.includes("válida") && !body.includes("ya")) paint("✅ VÁLIDA • acceso permitido","ok");
+    else if (body.includes("ya") && body.includes("utilizada")) paint("⚠️ YA utilizada","warn");
+    else if (body.includes("inválida") || body.includes("invalida")) paint("❌ INVÁLIDA","bad");
+    else { paint("ℹ️ Respuesta recibida (ver consola)", "bad"); console.log(body); }
+    navigator.vibrate && navigator.vibrate(80); beep();
+  }catch(e){ paint("❌ Error: "+e.message,"bad"); }
+}
+let lastText="", lastAt=0, html5QrCode, cameras=[], currentCamIndex=0;
+function onScanSuccess(text){
+  const now=Date.now(); if(text===lastText && (now-lastAt)<1500) return; lastText=text; lastAt=now;
+  validate(text);
+}
+async function start(){
+  try{
+    if(!html5QrCode) html5QrCode=new Html5Qrcode("reader");
+    cameras = await Html5Qrcode.getCameras();
+    if(!cameras?.length) throw new Error("No hay cámara disponible");
+    const id=cameras[currentCamIndex].id;
+    await html5QrCode.start({deviceId:{exact:id}}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
+    paint("Cámara iniciada","ok");
+  }catch(e){ paint("❌ "+e.message,"bad"); }
+}
+async function stop(){ try{ await html5QrCode?.stop(); paint("Cámara detenida","warn"); }catch(_){ } }
+async function flip(){
+  if(!cameras.length) cameras = await Html5Qrcode.getCameras();
+  if(!cameras.length) return paint("No hay cámaras","bad");
+  currentCamIndex = (currentCamIndex+1) % cameras.length;
+  await stop(); await start();
+}
+document.getElementById("start").onclick=start;
+document.getElementById("stop").onclick=stop;
+document.getElementById("flip").onclick=flip;
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Lector QR • Cámara (redir fuerza validador)</title>
+<title>Lector QR • Cámara (redirección)</title>
 <style>
   :root{color-scheme: dark;}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#0b1220;color:#e5e7eb;margin:0}
@@ -32,14 +32,13 @@
       <button id="flip">Cambiar cámara</button>
     </div>
     <div id="diag" class="muted"></div>
-    <div class="muted">Requiere HTTPS. Evita abrir dentro de WhatsApp/Instagram; usa Safari o Chrome.</div>
+    <div class="muted">Requiere HTTPS. Usa Safari/Chrome (no navegadores “in-app”).</div>
   </div>
   <div id="out" class="card"></div>
 </div>
 
-<!-- TU /exec DE APPS SCRIPT -->
 <script>
-const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbzQ5_g70DZ-ThfPOafiFj1AjX9Yta04srnvdv6E7sxTZ4irbHSsV5j6A8LbL96HDC3R3A/exec";
+const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbzzVErGOA1V3xU2GVP-_hMB3_mqDvs_DmThbebENA-pAIraagGsWeUmfI7Dq9mhJ33jUA/exec"; // <--- pon aquí tu /exec
 </script>
 
 <script src="https://unpkg.com/html5-qrcode@2.3.10"></script>
@@ -47,58 +46,49 @@ const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbzQ5_g70DZ-ThfPO
 function paint(msg, cls){ document.getElementById("out").innerHTML = `<div class="status ${cls}">${msg}</div>`; }
 function diag(msg){ const d=document.getElementById("diag"); d.textContent = (d.textContent? d.textContent+"\n":"") + msg; }
 
-// Construye SIEMPRE una URL hacia tu validador.
-// Regla:
-//  - Si el QR ya es tu /exec (script.google.com/.../exec), úsalo y añade html=1.
-//  - Si el QR es una URL con ?c=TOKEN, extrae c y valida con tu /exec.
-//  - Si el QR trae n|c o n=&c=, rearmamos con tu /exec.
-//  - Para todo lo demás, tratamos el texto como TOKEN.
+// Forzamos que SIEMPRE se use tu validador:
+// - Si el QR ya es tu /exec, solo agregamos html=1.
+// - Si el QR trae ?c=..., extraemos c y lo mandamos a tu /exec.
+// - Si el QR trae n|c o n=&c=, también rearmamos.
+// - Todo lo demás, lo tratamos como TOKEN.
 function buildValidatorUrl(text){
   const raw = (text||"").trim();
 
-  // 1) Si parece URL, examínala:
   if (/^https?:\/\//i.test(raw)) {
     try{
       const u = new URL(raw);
       const host = u.hostname;
-      const isExec = /script\.google\.com$/.test(host) || /script\.googleusercontent\.com$/.test(host);
+      const isExec = /script\.google\.com$/.test(host);
       const paramC = u.searchParams.get("c") || u.searchParams.get("token");
 
       if (isExec) {
-        // Ya es tu validador: garantiza html=1
         const sep = raw.includes("?") ? "&" : "?";
         return `${raw}${sep}html=1`;
       }
       if (paramC) {
-        // Extrae c de la URL externa y revalida con tu /exec
         return `${VALIDATOR_BASE}?c=${encodeURIComponent(paramC)}&html=1`;
       }
-      // Si no hay c, cae abajo y lo tratamos como token textual
     }catch(_){}
   }
 
-  // 2) Si viene n|c en texto plano
   if (raw.includes("|")) {
     const [n,c] = raw.split("|");
     return `${VALIDATOR_BASE}?n=${encodeURIComponent(n)}&c=${encodeURIComponent(c)}&html=1`;
   }
 
-  // 3) Si viene "…?n=…&c=…" en texto
   if (/(^|[?&])n=.+&c=.+/i.test(raw)) {
     const qs = raw.replace(/^.*\?/,'');
     return `${VALIDATOR_BASE}?${qs}&html=1`;
   }
 
-  // 4) Por defecto, es un TOKEN
   return `${VALIDATOR_BASE}?c=${encodeURIComponent(raw)}&html=1`;
 }
 
-// Redirección directa (sin fetch): elimina CORS y “Failed to fetch”
 function validate(decoded){
   try{
     const url = buildValidatorUrl(decoded);
     diag("Redirigiendo a:\n" + url);
-    window.location.href = url;
+    window.location.href = url; // sin CORS
   }catch(e){
     paint("❌ Error al construir URL: "+e.message, "bad");
   }
@@ -113,37 +103,26 @@ function onScanSuccess(text){
   validate(text);
 }
 
-// Inicio robusto: deviceId y, si falla, facingMode: environment (iOS)
 async function start(){
   try{
     diag("isSecureContext=" + (window.isSecureContext ? "true":"false"));
-    if (!window.isSecureContext) {
-      paint("❌ Debes alojar la página en HTTPS.", "bad");
-      return;
-    }
-    try{
-      await navigator.mediaDevices.getUserMedia({ video: true });
-      diag("Permiso de cámara otorgado.");
-    }catch(e){
-      diag("Permiso previa cámara: " + e.name + " - " + e.message);
-    }
+    if (!window.isSecureContext) { paint("❌ Debes alojar en HTTPS.", "bad"); return; }
+
+    try{ await navigator.mediaDevices.getUserMedia({ video: true }); diag("Permiso de cámara OK."); }catch(e){ diag("Permiso previo: "+e.message); }
+
     if(!html5QrCode) html5QrCode=new Html5Qrcode("reader");
 
-    cameras = await Html5Qrcode.getCameras();
-    diag("Cámaras detectadas: " + (cameras?.length || 0));
+    cameras = await Html5Qrcode.getCameras(); diag("Cámaras: " + (cameras?.length || 0));
 
     if (cameras && cameras.length){
       const id=cameras[currentCamIndex]?.id || cameras[0].id;
       try{
         await html5QrCode.start({deviceId:{exact:id}}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
-        paint("Cámara iniciada (deviceId)","ok");
-        return;
-      }catch(e){
-        diag("start(deviceId) falló: " + e.message);
-      }
+        paint("Cámara iniciada (deviceId)","ok"); return;
+      }catch(e){ diag("start(deviceId) falló: " + e.message); }
     }
     await html5QrCode.start({facingMode:"environment"}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
-    paint("Cámara iniciada (facingMode: environment)","ok");
+    paint("Cámara iniciada (environment)","ok");
   }catch(e){
     paint("❌ No se pudo iniciar la cámara: " + e.message, "bad");
     diag("Error start(): " + e.name + " - " + e.message);
@@ -152,10 +131,7 @@ async function start(){
 
 async function stop(){ try{ await html5QrCode?.stop(); paint("Cámara detenida","warn"); }catch(_){ } }
 async function flip(){
-  if(!cameras || !cameras.length){
-    cameras = await Html5Qrcode.getCameras();
-    if(!cameras || !cameras.length) return paint("No hay cámaras para cambiar","bad");
-  }
+  if(!cameras || !cameras.length){ cameras = await Html5Qrcode.getCameras(); if(!cameras || !cameras.length) return paint("No hay cámaras","bad"); }
   currentCamIndex = (currentCamIndex+1) % cameras.length;
   await stop(); await start();
 }

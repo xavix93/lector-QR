@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Lector QR • Cámara (redirección)</title>
+<title>Lector QR • Cámara (redirección, robusto)</title>
 <style>
   :root{color-scheme: dark;}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#0b1220;color:#e5e7eb;margin:0}
   .wrap{max-width:720px;margin:0 auto;padding:16px}
   .card{background:#0f172a;border:1px solid #1f2937;border-radius:14px;padding:16px;margin-top:16px}
   h1{font-size:20px;margin:0 0 8px}
-  .muted{color:#9ca3af;font-size:12px;margin-top:6px}
+  .muted{color:#9ca3af;font-size:12px;margin-top:6px;white-space:pre-wrap}
   .status{margin-top:12px;padding:12px;border-radius:10px;text-align:center;white-space:pre-wrap}
   .ok{background:#022c22;color:#a7f3d0;border:1px solid #065f46}
   .warn{background:#3a1d06;color:#fde68a;border:1px solid #b45309}
@@ -18,7 +18,6 @@
   button{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;cursor:pointer}
   #reader{width:100%;min-height:320px}
   .row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
-  #diag{font-size:12px;color:#9ca3af;margin-top:8px;white-space:pre-wrap}
 </style>
 </head>
 <body>
@@ -32,35 +31,59 @@
       <button id="flip">Cambiar cámara</button>
     </div>
     <div id="diag" class="muted"></div>
-    <div class="muted">Requiere HTTPS. Usa Safari/Chrome (no navegadores “in-app”).</div>
   </div>
   <div id="out" class="card"></div>
 </div>
 
 <script>
-const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbzzVErGOA1V3xU2GVP-_hMB3_mqDvs_DmThbebENA-pAIraagGsWeUmfI7Dq9mhJ33jUA/exec"; // <--- pon aquí tu /exec
-</script>
+// Tu Web App (Apps Script) /exec:
+const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbzzVErGOA1V3xU2GVP-_hMB3_mqDvs_DmThbebENA-pAIraagGsWeUmfI7Dq9mhJ33jUA/exec";
 
-<script src="https://unpkg.com/html5-qrcode@2.3.10"></script>
-<script>
+// ---------- utilidades UI ----------
 function paint(msg, cls){ document.getElementById("out").innerHTML = `<div class="status ${cls}">${msg}</div>`; }
-function diag(msg){ const d=document.getElementById("diag"); d.textContent = (d.textContent? d.textContent+"\n":"") + msg; }
+function diag(msg){ const el=document.getElementById("diag"); el.textContent += (el.textContent? "\n":"") + msg; }
 
-// Forzamos que SIEMPRE se use tu validador:
-// - Si el QR ya es tu /exec, solo agregamos html=1.
-// - Si el QR trae ?c=..., extraemos c y lo mandamos a tu /exec.
-// - Si el QR trae n|c o n=&c=, también rearmamos.
-// - Todo lo demás, lo tratamos como TOKEN.
+// ---------- carga robusta de html5-qrcode ----------
+(function loadHtml5QrLib(){
+  const urls = [
+    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.10/minified/html5-qrcode.min.js",
+    "https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js",
+    "https://unpkg.com/html5-qrcode@2.3.10/html5-qrcode.min.js"
+  ];
+  let i = 0;
+  function tryLoad(){
+    if(i >= urls.length){ diag("❌ No se pudo cargar html5-qrcode."); paint("❌ No se pudo cargar el lector de QR. Revisa conexión/HTTPS.","bad"); return; }
+    const s = document.createElement("script");
+    s.src = urls[i]; s.async = true;
+    s.onload = ()=>{ diag("✅ html5-qrcode cargado de: " + urls[i]); };
+    s.onerror= ()=>{ diag("⚠️ Falló cargar: " + urls[i]); i++; tryLoad(); };
+    document.head.appendChild(s);
+  }
+  tryLoad();
+})();
+
+// espera a que exista Html5Qrcode
+function ensureLib(timeout=10000){
+  return new Promise((resolve, reject)=>{
+    const t0 = Date.now();
+    (function wait(){
+      if (window.Html5Qrcode) return resolve();
+      if (Date.now() - t0 > timeout) return reject(new Error("Librería html5-qrcode no disponible"));
+      setTimeout(wait, 150);
+    })();
+  });
+}
+
+// ---------- construir URL hacia tu validador (SIEMPRE) ----------
 function buildValidatorUrl(text){
   const raw = (text||"").trim();
 
+  // Si ya es tu /exec, solo fuerza html=1
   if (/^https?:\/\//i.test(raw)) {
     try{
       const u = new URL(raw);
-      const host = u.hostname;
-      const isExec = /script\.google\.com$/.test(host);
+      const isExec = /script\.google\.com$/.test(u.hostname);
       const paramC = u.searchParams.get("c") || u.searchParams.get("token");
-
       if (isExec) {
         const sep = raw.includes("?") ? "&" : "?";
         return `${raw}${sep}html=1`;
@@ -75,54 +98,70 @@ function buildValidatorUrl(text){
     const [n,c] = raw.split("|");
     return `${VALIDATOR_BASE}?n=${encodeURIComponent(n)}&c=${encodeURIComponent(c)}&html=1`;
   }
-
   if (/(^|[?&])n=.+&c=.+/i.test(raw)) {
     const qs = raw.replace(/^.*\?/,'');
     return `${VALIDATOR_BASE}?${qs}&html=1`;
   }
-
+  // por defecto tratamos el contenido como TOKEN
   return `${VALIDATOR_BASE}?c=${encodeURIComponent(raw)}&html=1`;
 }
 
+// Redirección directa (evita CORS)
 function validate(decoded){
   try{
     const url = buildValidatorUrl(decoded);
     diag("Redirigiendo a:\n" + url);
-    window.location.href = url; // sin CORS
+    window.location.href = url;
   }catch(e){
-    paint("❌ Error al construir URL: "+e.message, "bad");
+    paint("❌ Error al construir URL: " + e.message, "bad");
   }
 }
 
+// ---------- control de cámara ----------
 let lastText="", lastAt=0, html5QrCode, cameras=[], currentCamIndex=0;
 
 function onScanSuccess(text){
   const now=Date.now();
-  if(text===lastText && (now-lastAt)<1500) return;
+  if(text===lastText && (now-lastAt)<1500) return; // evita doble
   lastText=text; lastAt=now;
   validate(text);
 }
 
 async function start(){
   try{
-    diag("isSecureContext=" + (window.isSecureContext ? "true":"false"));
-    if (!window.isSecureContext) { paint("❌ Debes alojar en HTTPS.", "bad"); return; }
+    if(!window.isSecureContext){
+      paint("❌ Debes alojar esta página en HTTPS.", "bad");
+      diag("isSecureContext = false"); return;
+    }
+    await ensureLib(); // <- aquí evitamos "Html5Qrcode is not defined"
 
-    try{ await navigator.mediaDevices.getUserMedia({ video: true }); diag("Permiso de cámara OK."); }catch(e){ diag("Permiso previo: "+e.message); }
+    // pedir permiso anticipado (mejor UX en iOS)
+    try{ await navigator.mediaDevices.getUserMedia({ video:true }); diag("Permiso de cámara OK."); }
+    catch(e){ diag("Permiso preliminar: " + e.name + " - " + e.message); }
 
     if(!html5QrCode) html5QrCode=new Html5Qrcode("reader");
 
-    cameras = await Html5Qrcode.getCameras(); diag("Cámaras: " + (cameras?.length || 0));
+    // 1) intentar por deviceId
+    try{
+      cameras = await Html5Qrcode.getCameras();
+      diag("Cámaras detectadas: " + (cameras?.length || 0));
+    }catch(e){ diag("getCameras error: " + e.message); }
 
     if (cameras && cameras.length){
       const id=cameras[currentCamIndex]?.id || cameras[0].id;
       try{
         await html5QrCode.start({deviceId:{exact:id}}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
-        paint("Cámara iniciada (deviceId)","ok"); return;
-      }catch(e){ diag("start(deviceId) falló: " + e.message); }
+        paint("Cámara iniciada (deviceId)","ok");
+        return;
+      }catch(e){
+        diag("start(deviceId) falló: " + e.message);
+      }
     }
+
+    // 2) fallback iOS: facingMode
     await html5QrCode.start({facingMode:"environment"}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
     paint("Cámara iniciada (environment)","ok");
+
   }catch(e){
     paint("❌ No se pudo iniciar la cámara: " + e.message, "bad");
     diag("Error start(): " + e.name + " - " + e.message);
@@ -131,9 +170,16 @@ async function start(){
 
 async function stop(){ try{ await html5QrCode?.stop(); paint("Cámara detenida","warn"); }catch(_){ } }
 async function flip(){
-  if(!cameras || !cameras.length){ cameras = await Html5Qrcode.getCameras(); if(!cameras || !cameras.length) return paint("No hay cámaras","bad"); }
-  currentCamIndex = (currentCamIndex+1) % cameras.length;
-  await stop(); await start();
+  try{
+    if(!cameras || !cameras.length){
+      cameras = await Html5Qrcode.getCameras();
+      if(!cameras || !cameras.length) return paint("No hay cámaras para cambiar","bad");
+    }
+    currentCamIndex = (currentCamIndex+1) % cameras.length;
+    await stop(); await start();
+  }catch(e){
+    paint("❌ No se pudo cambiar cámara: " + e.message, "bad");
+  }
 }
 
 document.getElementById("start").onclick=start;

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Lector QR • Cámara (Hardcode)</title>
+<title>Lector QR • Cámara</title>
 <style>
   :root{color-scheme: dark;}
   body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#0b1220;color:#e5e7eb;margin:0}
@@ -35,60 +35,104 @@
   <div id="out" class="card"></div>
 </div>
 
-<!-- 1) EDITA SOLO ESTA CONSTANTE CON TU URL /exec DE APPS SCRIPT -->
+<!-- PON AQUÍ TU /exec DE APPS SCRIPT -->
 <script>
-const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbyZBqn1GIYhzQ1L_ursF_n2fnVyUM4qGN0Qtt92znxF_WH06CtxbHvWeeBxNMdfXRAs5w/exec"; // <-- cámbiala aquí
+const VALIDATOR_BASE = "https://script.google.com/macros/s/AKfycbyZBqn1GIYhzQ1L_ursF_n2fnVyUM4qGN0Qtt92znxF_WH06CtxbHvWeeBxNMdfXRAs5w/exec";
 </script>
-<!-- FIN: EDICIÓN -->
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script>
-function beep(ms=120){try{const ctx=new (window.AudioContext||window.webkitAudioContext)();
-  const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
-  o.frequency.value=880; o.start(); setTimeout(()=>{o.stop();ctx.close()},ms);}catch(_){}} 
+function beep(ms=120){
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value=880; o.start();
+    setTimeout(()=>{o.stop();ctx.close()},ms);
+  }catch(_){}
+}
 function paint(msg, cls){ document.getElementById("out").innerHTML = `<div class="status ${cls}">${msg}</div>`; }
+
+// Construye URL hacia el validador según lo que venga en el QR
 function buildUrlFromScan(text){
   text = (text||"").trim();
-  if(!VALIDATOR_BASE) throw new Error("Falta configurar VALIDATOR_BASE en el archivo.");
-  if(/^https?:\/\//i.test(text)) return text; // el QR ya trae URL completa
-  if (/(^|[?&])n=.+&c=.+/i.test(text)) return `${VALIDATOR_BASE}?${text.replace(/^.*\?/,'')}`;
+  if(!VALIDATOR_BASE) throw new Error("Falta configurar VALIDATOR_BASE.");
+  if(/^https?:\/\//i.test(text)) return text; // el QR ya trae una URL
+  if (/(^|[?&])n=.+&c=.+/i.test(text)) return `${VALIDATOR_BASE}?${text.replace(/^.*\?/,'')}`; // n&c
   if (text.includes("|")){ const [n,c]=text.split("|"); return `${VALIDATOR_BASE}?n=${encodeURIComponent(n)}&c=${encodeURIComponent(c)}`; }
-  return `${VALIDATOR_BASE}?c=${encodeURIComponent(text)}`; // por defecto tratamos el QR como 'token'
+  return `${VALIDATOR_BASE}?c=${encodeURIComponent(text)}`; // por defecto: token
 }
+
+// Normaliza respuesta: quita HTML, acentos y espacios múltiples
+function normalizeText(s){
+  let t = String(s||"");
+  t = t.replace(/<script[\s\S]*?<\/script>/gi,'')
+       .replace(/<style[\s\S]*?<\/style>/gi,'')
+       .replace(/<[^>]+>/g,' ')
+       .replace(/\s+/g,' ')
+       .trim();
+  // quita acentos
+  t = t.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return t.toUpperCase();
+}
+
 async function validate(decoded){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 8000); // 8s timeout
   try{
     const url = buildUrlFromScan(decoded);
-    const r = await fetch(url, {cache:"no-store"});
-    const body = (await r.text()).toLowerCase();
-    if (body.includes("válida") && !body.includes("ya")) paint("✅ VÁLIDA • acceso permitido","ok");
-    else if (body.includes("ya") && body.includes("utilizada")) paint("⚠️ YA utilizada","warn");
-    else if (body.includes("inválida") || body.includes("invalida")) paint("❌ INVÁLIDA","bad");
-    else { paint("ℹ️ Respuesta recibida (ver consola)", "bad"); console.log(body); }
+    const r = await fetch(url, {cache:"no-store", signal: controller.signal});
+    const raw = await r.text();
+    const T = normalizeText(raw); // e.g. "VALIDA", "YA_USADA", "INVALIDA", "ERR: ..."
+
+    const isErr   = /\bERR/.test(T) || /FALTA\s*\?\s*C=/.test(T);
+    const isUsed  = /\bYA[_\s]*USADA\b/.test(T) || /\bYA[_\s]*UTILIZADA\b/.test(T);
+    const isInv   = /\bINVALIDA\b/.test(T); // "INVALIDA" no coincide con \bVALIDA\b
+    const isOk    = /\bVALIDA\b/.test(T) && !isInv && !isUsed;
+
+    if (isOk)      paint("✅ VÁLIDA • acceso permitido","ok");
+    else if (isUsed)  paint("⚠️ YA usada","warn");
+    else if (isInv)   paint("❌ INVÁLIDA","bad");
+    else if (isErr)   paint("❌ Error del validador: "+raw,"bad");
+    else              paint("ℹ️ Respuesta del servidor:\n"+raw,"bad");
+
     navigator.vibrate && navigator.vibrate(80); beep();
-  }catch(e){ paint("❌ Error: "+e.message,"bad"); }
+  }catch(e){
+    if (e.name === 'AbortError') paint("❌ Sin respuesta (timeout). Revisa conexión/URL).","bad");
+    else paint("❌ Error: "+e.message,"bad");
+  } finally {
+    clearTimeout(timer);
+  }
 }
+
 let lastText="", lastAt=0, html5QrCode, cameras=[], currentCamIndex=0;
 function onScanSuccess(text){
-  const now=Date.now(); if(text===lastText && (now-lastAt)<1500) return; lastText=text; lastAt=now;
+  const now=Date.now();
+  if(text===lastText && (now-lastAt)<1500) return;
+  lastText=text; lastAt=now;
   validate(text);
 }
+
 async function start(){
   try{
     if(!html5QrCode) html5QrCode=new Html5Qrcode("reader");
     cameras = await Html5Qrcode.getCameras();
     if(!cameras?.length) throw new Error("No hay cámara disponible");
-    const id=cameras[currentCamIndex].id;
+    const id=cameras[currentCamIndex]?.id || cameras[0].id;
     await html5QrCode.start({deviceId:{exact:id}}, {fps:12, qrbox:{width:240,height:240}}, onScanSuccess);
     paint("Cámara iniciada","ok");
   }catch(e){ paint("❌ "+e.message,"bad"); }
 }
-async function stop(){ try{ await html5QrCode?.stop(); paint("Cámara detenida","warn"); }catch(_){ } }
+async function stop(){
+  try{ await html5QrCode?.stop(); paint("Cámara detenida","warn"); }catch(_){}
+}
 async function flip(){
   if(!cameras.length) cameras = await Html5Qrcode.getCameras();
   if(!cameras.length) return paint("No hay cámaras","bad");
   currentCamIndex = (currentCamIndex+1) % cameras.length;
   await stop(); await start();
 }
+
 document.getElementById("start").onclick=start;
 document.getElementById("stop").onclick=stop;
 document.getElementById("flip").onclick=flip;

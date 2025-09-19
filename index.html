@@ -50,6 +50,7 @@ function loadHtml5Qrcode(){
   <h1>📷 Lector QR • GitHub Pages</h1>
 
   <div class="card">
+     <div id="out" class="status warn">Cargando librería y tokens…</div>
     <div id="reader"></div>
     <div class="row">
       <button id="start">Iniciar cámara</button>
@@ -65,7 +66,7 @@ function loadHtml5Qrcode(){
 
       <input id="manual" placeholder="Pegar token y Enter" />
     </div>
-    <div id="out" class="status warn">Cargando librería y tokens…</div>
+   
 
     <div class="row" style="margin-top:10px">
       <a id="dl-used-json" class="btn" download="usados-local.json">Descargar USADOS (JSON)</a>

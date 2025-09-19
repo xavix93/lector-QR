@@ -1,25 +1,3 @@
-<!-- Carga html5-qrcode con fallback y cache-busting -->
-<script>
-(function loadH5QR(){
-  const CDNs = [
-    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.10/html5-qrcode.min.js",
-    "https://unpkg.com/html5-qrcode@2.3.10/html5-qrcode.min.js",
-    "https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js"
-  ];
-  let i = 0;
-  function inject(){
-    const s = document.createElement("script");
-    s.src = CDNs[i] + "?v=2";          // bustear caché de Safari
-    s.defer = true;
-    s.crossOrigin = "anonymous";
-    s.onload = () => { window.__H5QR_READY__ = true; console.log("html5-qrcode OK:", s.src); };
-    s.onerror = () => { console.warn("falló:", s.src); if(++i < CDNs.length) inject(); };
-    document.head.appendChild(s);
-  }
-  inject();
-})();
-</script>
-
 <!doctype html>
 <html lang="es">
 <head>
@@ -41,7 +19,32 @@
   input{padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb}
   a.btn{display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;text-decoration:none}
 </style>
+
+<!-- 1) Carga LOCAL de la librería (más fiable en iOS) -->
+<script src="./vendor/html5-qrcode.min.js" defer onload="window.__H5QR_READY__=true"></script>
+
+<script>
+// 2) Pequeño fallback: si por algún motivo falla la local, intenta CDNs
+window.addEventListener('error', () => {
+  if (!window.Html5Qrcode) {
+    const urls = [
+      "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.10/minified/html5-qrcode.min.js",
+      "https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js"
+    ];
+    (function tryNext(i=0){
+      if (i>=urls.length) return;
+      const s=document.createElement('script');
+      s.src=urls[i]+"?v=2";
+      s.defer=true;
+      s.onload=()=>window.__H5QR_READY__=true;
+      s.onerror=()=>tryNext(i+1);
+      document.head.appendChild(s);
+    })();
+  }
+});
+</script>
 </head>
+
 <body>
 <div class="wrap">
   <h1>📷 Lector QR • GitHub Pages</h1>
@@ -61,34 +64,23 @@
     </div>
     <div style="margin-top:8px;color:#9ca3af;font-size:12px">
       Este sitio lee <code>tokens.json</code> del repo. Los “usados” se guardan localmente (este navegador).
-      Súbelos al repo cuando quieras para sincronizar.
     </div>
   </div>
 </div>
 
-<!-- RUTA del archivo en el repo -->
 <script>
-  const TOKENS_URL = "./tokens.json";
-</script>
+/*** Config ***/
+const TOKENS_URL = "./tokens.json";
 
-<!-- Librería correcta (minified) -->
-<script src="https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js"></script>
-<script>
+/*** Estado ***/
 let html5, cameras=[], camIdx=0, last="", lastAt=0;
-let allowMap = {};   // token -> usado(bool)
+let allowMap = {};   // token -> usado(bool) del repo
 let usedLocal = {};  // marcados en este navegador
-const out = (m,c)=>document.getElementById("out").innerHTML = `<div class="status ${c}">${m}</div>`;
 
-// Cargar tokens.json del repo
-async function loadTokens(){
-  const r = await fetch(TOKENS_URL, {cache:"no-store"});
-  if(!r.ok) throw new Error("No pude leer tokens.json ("+r.status+")");
-  const j = await r.json();
-  if(!j.tokens || typeof j.tokens !== "object") throw new Error("tokens.json sin formato esperado");
-  allowMap = j.tokens; // { token: true/false }
-}
-
-// Utilidad: exportar usados locales
+/*** Helpers UI ***/
+const out = (m,c="ok") => {
+  document.getElementById("out").innerHTML = `<div class="status ${c}">${m}</div>`;
+};
 function blobDownload(el, name, text){
   el.href = URL.createObjectURL(new Blob([text], {type:"text/plain"}));
   el.download = name;
@@ -100,28 +92,51 @@ function refreshDownloads(){
   blobDownload(document.getElementById("dl-used-csv"), "usados-local.csv", csv);
 }
 
-// Validar un token
+/*** Carga tokens ***/
+async function loadTokens(){
+  const r = await fetch(TOKENS_URL, {cache:"no-store"});
+  if(!r.ok) throw new Error("No pude leer tokens.json ("+r.status+")");
+  const j = await r.json();
+  if(!j.tokens || typeof j.tokens !== "object") throw new Error("tokens.json sin formato esperado");
+  allowMap = j.tokens;
+}
+
+/*** Validación ***/
 function validateToken(token){
-  const exists = Object.prototype.hasOwnProperty.call(allowMap, token);
+  const t = token.trim();
+  const exists = Object.prototype.hasOwnProperty.call(allowMap, t);
   if(!exists) return out("❌ INVÁLIDA (token no en lista)","bad");
-  const ya = allowMap[token] === true || usedLocal[token] === true;
+  const ya = allowMap[t] === true || usedLocal[t] === true;
   if(ya) return out("⚠️ YA utilizada","warn");
-  // marcar localmente
-  usedLocal[token] = true;
+  usedLocal[t] = true; // marcar local
   localStorage.setItem("qr_usados", JSON.stringify(usedLocal));
   refreshDownloads();
   return out("✅ VÁLIDA • acceso permitido","ok");
 }
 
-// Escaneo
+/*** Escaneo ***/
 function onScanSuccess(text){
   const now=Date.now(); if(text===last && (now-lastAt)<1500) return; last=text; lastAt=now;
-  validateToken(text.trim());
+  validateToken(text);
 }
 
-// Cámara
+/*** Asegurar librería lista ***/
+async function ensureLib(){
+  for(let i=0;i<50;i++){ // hasta ~10s
+    if (window.Html5Qrcode) return true;
+    await new Promise(r=>setTimeout(r,200));
+  }
+  throw new Error("Librería de QR no se cargó");
+}
+
+/*** Cámara ***/
 async function start(){
   try{
+    if (!location.protocol.startsWith("https")) {
+      out("❌ Se requiere HTTPS para la cámara (GitHub Pages ya lo usa).", "bad");
+      return;
+    }
+    await ensureLib();
     if(!html5) html5 = new Html5Qrcode("reader");
     cameras = await Html5Qrcode.getCameras();
     if(!cameras.length) throw new Error("No hay cámara disponible");
@@ -137,7 +152,7 @@ async function flip(){
   await stop(); await start();
 }
 
-// Manual
+/*** Manual ***/
 document.getElementById("manual").addEventListener("keydown", e=>{
   if(e.key==="Enter"){
     e.preventDefault();
@@ -147,10 +162,9 @@ document.getElementById("manual").addEventListener("keydown", e=>{
   }
 });
 
-// Init
+/*** Init ***/
 (async ()=>{
   try{
-    // usados locales persistidos
     usedLocal = JSON.parse(localStorage.getItem("qr_usados")||"{}");
     refreshDownloads();
     await loadTokens();

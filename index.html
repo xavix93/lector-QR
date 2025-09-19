@@ -1,206 +1,79 @@
-<script src="https://unpkg.com/html5-qrcode@2.3.10/dist/html5-qrcode.min.js"></script>
-
 <!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>📷 Lector QR • GitHub Pages</title>
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<style>
-  :root{color-scheme:light dark}
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1220;color:#e5e7eb}
-  .wrap{max-width:860px;margin:auto;padding:18px}
-  .card{background:#0f172a;border:1px solid #1f2937;border-radius:14px;padding:16px}
-  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-  #reader{width:100%;min-height:320px;background:#0b1220;border-radius:12px;border:1px dashed #334155}
-  .status{margin-top:12px;padding:12px;border-radius:10px;text-align:center}
-  .ok{background:#022c22;color:#a7f3d0;border:1px solid #065f46}
-  .warn{background:#3a1d06;color:#fde68a;border:1px solid #b45309}
-  .bad{background:#2b0d0d;color:#fecaca;border:1px solid #991b1b}
-  button{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;cursor:pointer}
-  input{padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb}
-  a.btn{display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;text-decoration:none}
-</style>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Prueba QR • CDN</title>
 
-<!-- 1) Cargamos PRIMERO la librería LOCAL; si no existe, cae a CDN automáticamente -->
-<script>
-(async function loadHtml5Qrcode(){
-  if (window.Html5Qrcode) return;
-  function inject(src){
-    return new Promise((res, rej)=>{
-      const s = document.createElement("script");
-      s.src = src + (src.includes("?") ? "&" : "?") + "v=2"; // anticaché
-      s.defer = true;
-      s.onload = ()=>res(src);
-      s.onerror = ()=>rej(new Error("falló "+src));
-      document.head.appendChild(s);
-    });
-  }
-  const tries = [
-    "/lib/html5-qrcode.min.js",                                        // LOCAL (recomendado)
-    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
-    "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
-    "https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
-  ];
-  for (let i=0;i<tries.length;i++){
-    try { await inject(tries[i]); if (window.Html5Qrcode) return; } catch(_) {}
-  }
-})();
-</script>
+  <!-- 1) Librería desde CDN (ruta correcta con /dist/) -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.10/dist/html5-qrcode.min.js"></script>
+
+  <style>
+    body{font-family:system-ui;background:#0b1220;color:#e5e7eb;margin:0;padding:16px}
+    .card{max-width:720px;margin:auto;background:#0f172a;border:1px solid #1f2937;border-radius:14px;padding:16px}
+    #reader{width:100%;min-height:320px;background:#0b1220;border-radius:12px;border:1px dashed #334155}
+    button{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;cursor:pointer;margin-right:8px}
+    .status{margin-top:12px;padding:12px;border-radius:10px;text-align:center}
+    .ok{background:#022c22;color:#a7f3d0;border:1px solid #065f46}
+    .bad{background:#2b0d0d;color:#fecaca;border:1px solid #991b1b}
+  </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>📷 Lector QR • GitHub Pages</h1>
-
   <div class="card">
+    <h1>📷 Prueba Lector QR (CDN)</h1>
     <div id="reader"></div>
-    <div class="row">
+    <div style="margin-top:10px">
       <button id="start">Iniciar cámara</button>
       <button id="stop">Detener</button>
-      <button id="flip">Cambiar cámara</button>
-      <input id="manual" placeholder="Pegar token y Enter" />
     </div>
-    <div id="out" class="status warn">Cargando librería y tokens…</div>
-
-    <div class="row" style="margin-top:10px">
-      <a id="dl-used-json" class="btn" download="usados-local.json">Descargar USADOS (JSON)</a>
-      <a id="dl-used-csv"  class="btn" download="usados-local.csv">Descargar USADOS (CSV)</a>
-    </div>
-    <div style="margin-top:8px;color:#9ca3af;font-size:12px">
-      Este sitio lee <code>tokens.json</code> del repo. Los “usados” se guardan localmente (este navegador).
-    </div>
+    <div id="out" class="status">Listo</div>
   </div>
-</div>
 
-<script>
-/* 2) Ruta del JSON con tus tokens (AJÚSTALA si cambias ubicación) */
-const TOKENS_URL = "/lector-QR/tokens.json?v=" + Date.now(); // <-- así lo tienes ahora
+  <!-- 2) Tu script (VA DESPUÉS de la librería) -->
+  <script>
+    const out = (m,cls="ok")=>{
+      const el=document.getElementById("out");
+      el.className="status "+cls;
+      el.textContent=m;
+    };
 
-/* Estado */
-let html5, cameras=[], camIdx=0, last="", lastAt=0;
-let allowMap = {};   // token -> true/false
-let usedLocal = {};  // tokens marcados en este navegador
+    let qr, cameras=[], idx=0, last="", lastAt=0;
 
-const out = (m,c)=>{ const el=document.getElementById("out"); el.className="status "+c; el.textContent=m; };
-
-/* Cargar tokens del repo */
-async function loadTokens(){
-  const r = await fetch(TOKENS_URL, {cache:"no-store"});
-  if(!r.ok) throw new Error("No pude leer tokens.json ("+r.status+")");
-  const j = await r.json();
-  if(!j.tokens || typeof j.tokens !== "object") throw new Error("Formato inválido de tokens.json");
-  allowMap = j.tokens;
-}
-
-/* Descargas (usados locales) */
-function blobDownload(el, name, text){
-  el.href = URL.createObjectURL(new Blob([text], {type:"text/plain"}));
-  el.download = name;
-}
-function refreshDownloads(){
-  const j = JSON.stringify(usedLocal, null, 2);
-  blobDownload(document.getElementById("dl-used-json"), "usados-local.json", j);
-  const csv = "token,usado_local\n" + Object.keys(usedLocal).map(t=>`${t},SI`).join("\n");
-  blobDownload(document.getElementById("dl-used-csv"), "usados-local.csv", csv);
-}
-
-/* Validación token */
-function validateToken(token){
-  token = String(token||"").trim();
-  const exists = Object.prototype.hasOwnProperty.call(allowMap, token);
-  if(!exists) return out("❌ INVÁLIDA (token no en lista)","bad");
-  const ya = allowMap[token] === true || usedLocal[token] === true;
-  if(ya) return out("⚠️ YA utilizada","warn");
-  usedLocal[token] = true;
-  localStorage.setItem("qr_usados", JSON.stringify(usedLocal));
-  refreshDownloads();
-  return out("✅ VÁLIDA • acceso permitido","ok");
-}
-
-/* Callback escaneo */
-function onScanSuccess(text){
-  const now=Date.now(); if(text===last && (now-lastAt)<1500) return; last=text; lastAt=now;
-  validateToken(text);
-}
-
-/* 3) Inicio robusto de cámara (iOS + Android) */
-async function start(){
-  try{
-    if(!window.Html5Qrcode) return out("❌ Librería de QR no se cargó","bad");
-
-    // 3.1 Solicita permiso explícito primero (mejora iOS)
-    try{
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      // detener tracks inmediatamente; sólo para desbloquear permiso
-      stream.getTracks().forEach(t => t.stop());
-    }catch(e){
-      // si el usuario deniega aquí, no podremos iniciar
-      console.warn("getUserMedia previo falló:", e);
+    function onScan(text){
+      const now=Date.now();
+      if (text===last && (now-lastAt)<1500) return; // evita duplicados
+      last=text; lastAt=now;
+      out("Leído: "+text,"ok");
+      // aquí harías tu validación…
     }
 
-    if(!html5) html5 = new Html5Qrcode("reader");
+    async function start(){
+      try{
+        // 3) Verificamos que la librería esté cargada
+        if (typeof window.Html5Qrcode === "undefined") {
+          out("Librería de QR no se cargó (revisa el <script> del CDN).","bad");
+          return;
+        }
+        if (!qr) qr = new Html5Qrcode("reader");
+        cameras = await Html5Qrcode.getCameras();
+        if (!cameras.length) throw new Error("No hay cámara disponible");
+        await qr.start(
+          { deviceId:{ exact:cameras[idx].id } },
+          { fps:12, qrbox:250 },
+          onScan
+        );
+        out("Cámara iniciada","ok");
+      }catch(e){
+        out("No se pudo iniciar la cámara: "+e.message,"bad");
+      }
+    }
 
-    // 3.2 Primer intento: facingMode directo (evita fallos de enumeración en iOS)
-    try{
-      await html5.start({ facingMode: "environment" }, { fps:12, qrbox:250 }, onScanSuccess);
-      return out("Cámara iniciada (environment)","ok");
-    }catch(_){ /* seguimos */ }
+    async function stop(){
+      try{ await qr?.stop(); await qr?.clear(); out("Cámara detenida","ok"); }catch(_){}
+    }
 
-    // 3.3 Segundo intento: enumerar cámaras y usar deviceId
-    cameras = await Html5Qrcode.getCameras();
-    if(!cameras.length) throw new Error("No hay cámara disponible");
-    await html5.start({ deviceId:{ exact:cameras[camIdx].id } }, { fps:12, qrbox:250 }, onScanSuccess);
-    out("Cámara iniciada","ok");
-
-  }catch(e){
-    out("❌ No se pudo iniciar la cámara: "+e.message,"bad");
-    console.error(e);
-  }
-}
-
-async function stop(){ try{ await html5?.stop(); html5?.clear(); out("Cámara detenida","warn"); }catch(_){} }
-async function flip(){
-  try{
-    if(!cameras.length) cameras = await Html5Qrcode.getCameras();
-    if(!cameras.length) return out("No hay cámaras","bad");
-    camIdx = (camIdx+1) % cameras.length;
-    await stop(); await start();
-  }catch(e){ out("❌ "+e.message,"bad"); }
-}
-
-/* Manual */
-document.getElementById("manual").addEventListener("keydown", e=>{
-  if(e.key==="Enter"){
-    e.preventDefault();
-    const v = e.target.value.trim();
-    if(v) validateToken(v);
-    e.target.select();
-  }
-});
-
-/* 4) Inicialización */
-(async ()=>{
-  try{
-    usedLocal = JSON.parse(localStorage.getItem("qr_usados")||"{}");
-    refreshDownloads();
-
-    // Espera a que la librería quede disponible (por si tardó en cargar)
-    let tries = 0;
-    while (!window.Html5Qrcode && tries++ < 60) { await new Promise(r=>setTimeout(r,100)); }
-
-    await loadTokens();
-    out(window.Html5Qrcode ? "✅ Listo: librería y tokens cargados. Toca «Iniciar cámara»." :
-                              "⚠️ Tokens OK. La librería aún no está disponible (reintenta).","ok");
-  }catch(e){
-    out("❌ Error al iniciar: "+e.message,"bad");
-    console.error(e);
-  }
-})();
-
-document.getElementById("start").onclick=start;
-document.getElementById("stop").onclick=stop;
-document.getElementById("flip").onclick=flip;
-</script>
+    document.getElementById("start").onclick = start;
+    document.getElementById("stop").onclick  = stop;
+  </script>
 </body>
 </html>

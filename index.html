@@ -1,41 +1,8 @@
-    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@latest/dist/html5-qrcode.min.js"></script>
-<script>
-(function loadH5QR(){
-  const urls = [
-    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
-    "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
-    "https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
-  ];
-  let i = 0;
-  (function inject(){
-    const s = document.createElement("script");
-    s.src = urls[i] + "?v=1"; // cache-busting
-    s.defer = true;
-    s.onload = () => console.log("html5-qrcode cargado:", s.src);
-    s.onerror = () => { if (++i < urls.length) inject(); else console.error("No se pudo cargar html5-qrcode"); };
-    document.head.appendChild(s);
-  })();
-})();
-</script>
-
-<script>
-  window.addEventListener("load", async () => {
-    if (!window.Html5Qrcode) { console.error("Html5Qrcode no disponible"); return; }
-    const html5 = new Html5Qrcode("reader");
-    const cams = await Html5Qrcode.getCameras();
-    await html5.start({ deviceId: { exact: cams[0].id } }, { fps: 12, qrbox: 250 },
-      (text) => console.log("QR:", text),
-      (err)  => console.log("scan err:", err)
-    );
-  });
-</script>
-
-
-<!doctype html>
+ <!doctype html>
 <html lang="es">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>📷 Lector QR • GitHub Pages</title>
 <style>
   :root{color-scheme:light dark}
@@ -48,10 +15,35 @@
   .ok{background:#022c22;color:#a7f3d0;border:1px solid #065f46}
   .warn{background:#3a1d06;color:#fde68a;border:1px solid #b45309}
   .bad{background:#2b0d0d;color:#fecaca;border:1px solid #991b1b}
-  button,a.btn{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;cursor:pointer;text-decoration:none}
+  button{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;cursor:pointer}
   input{padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb}
-  .muted{color:#9ca3af;font-size:12px}
+  a.btn{display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#111827;color:#e5e7eb;text-decoration:none}
 </style>
+
+<script>
+/* ---------- 1) Cargar html5-qrcode con fallback y timeout ---------- */
+function loadHtml5Qrcode(){
+  return new Promise((resolve,reject)=>{
+    if (window.Html5Qrcode) return resolve('ya cargada');
+    const CDNs = [
+      "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
+      "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
+    ];
+    let i = 0, done = false;
+    const t = setTimeout(()=>!done && reject(new Error("timeout cargando html5-qrcode")), 9000);
+    (function inject(){
+      const s = document.createElement("script");
+      s.src = CDNs[i] + "?v=2";   // anti-caché
+      s.defer = true;
+      s.crossOrigin = "anonymous";
+      s.onload = () => { done = true; clearTimeout(t); resolve(s.src); };
+      s.onerror = () => { if (++i < CDNs.length) inject(); else { clearTimeout(t); reject(new Error("falló cargar librería en todos los CDNs")); } };
+      document.head.appendChild(s);
+    })();
+  });
+}
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -59,196 +51,126 @@
 
   <div class="card">
     <div id="reader"></div>
-
     <div class="row">
-      <button id="start" disabled>Iniciar cámara</button>
-      <button id="stop" disabled>Detener</button>
-      <button id="flip" disabled>Cambiar cámara</button>
-      <input id="manual" placeholder="Pegar token y Enter"/>
+      <button id="start">Iniciar cámara</button>
+      <button id="stop">Detener</button>
+      <button id="flip">Cambiar cámara</button>
+      <input id="manual" placeholder="Pegar token y Enter" />
     </div>
-
     <div id="out" class="status warn">Cargando librería y tokens…</div>
 
     <div class="row" style="margin-top:10px">
       <a id="dl-used-json" class="btn" download="usados-local.json">Descargar USADOS (JSON)</a>
       <a id="dl-used-csv"  class="btn" download="usados-local.csv">Descargar USADOS (CSV)</a>
     </div>
-
-    <p class="muted" style="margin-top:8px">
-      Este sitio lee <code>tokens.json</code> del repo. Los “usados” se guardan localmente (este navegador).  
-      Para sincronizar globalmente, descarga y súbelos a tu repo cuando quieras.
-    </p>
+    <div style="margin-top:8px;color:#9ca3af;font-size:12px">
+      Este sitio lee <code>tokens.json</code> del repo. Los “usados” se guardan localmente (este navegador).
+      Súbelos al repo cuando quieras para sincronizar.
+    </div>
   </div>
 </div>
 
-<!-- 1) Librería local (estable) -->
-<script src="./vendor/html5-qrcode.min.js"></script>
-<!-- 2) Fallback CDN si la local fallara (raro, pero por si acaso) -->
 <script>
-(function ensureH5QR(){
-  if (window.Html5Qrcode) return;
-  const srcs = [
-    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.10/minified/html5-qrcode.min.js",
-    "https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js"
-  ];
-  let i=0;
-  function add(){
-    const s=document.createElement("script");
-    s.src = srcs[i] + "?v=" + Date.now(); // bust cache
-    s.defer = true;
-    s.onload = ()=>console.log("html5-qrcode cargado desde CDN:", s.src);
-    s.onerror= ()=>{ if(++i<srcs.length) add(); };
-    document.head.appendChild(s);
-  }
-  add();
-})();
-</script>
+/* ---------- 2) CONFIG: ruta del JSON en tu repo ---------- */
+/* Si tokens.json está en /lector-QR/tokens.json: */
+const TOKENS_URL = "/lector-QR/tokens.json?v=" + Date.now();
+/* Si lo pones junto al index.html, usa:
+   const TOKENS_URL = "./tokens.json?v=" + Date.now();
+*/
 
-<script>
-/* ---------- Config ---------- */
-const TOKENS_URL = "./tokens.json"; // en el mismo repo/carpeta
+let html5, cameras=[], camIdx=0, last="", lastAt=0;
+let allowMap = {};   // token -> true/false (true = ya fue usado/en lista como usado)
+let usedLocal = {};  // marcados en este navegador
 
-/* ---------- Estado ---------- */
-let html5 = null, cams = [], camIdx = 0, last = "", lastAt = 0;
-let allowMap = {};            // tokens del repo: {TOKEN: true/false}
-let usedLocal = {};           // usados en este navegador
-const $ = sel => document.querySelector(sel);
-const out = (m,c="ok")=> $("#out").className="status "+c, $("#out").textContent=m;
+const out = (m,c)=>{ const el=document.getElementById("out"); el.className="status "+c; el.textContent=m; };
 
-/* ---------- Utilidades ---------- */
+async function loadTokens(){
+  const r = await fetch(TOKENS_URL, {cache:"no-store"});
+  if(!r.ok) throw new Error("No pude leer tokens.json ("+r.status+")");
+  const j = await r.json();
+  if(!j.tokens || typeof j.tokens !== "object") throw new Error("Formato inválido de tokens.json");
+  allowMap = j.tokens; // { "TOKEN1": false, "TOKEN2": true, ... }
+}
+
+/* Descargas de usados locales */
 function blobDownload(el, name, text){
   el.href = URL.createObjectURL(new Blob([text], {type:"text/plain"}));
   el.download = name;
 }
 function refreshDownloads(){
   const j = JSON.stringify(usedLocal, null, 2);
-  blobDownload($("#dl-used-json"), "usados-local.json", j);
+  blobDownload(document.getElementById("dl-used-json"), "usados-local.json", j);
   const csv = "token,usado_local\n" + Object.keys(usedLocal).map(t=>`${t},SI`).join("\n");
-  blobDownload($("#dl-used-csv"), "usados-local.csv", csv);
-}
-async function waitForLib(timeout=5000){
-  const t0=Date.now();
-  while (!window.Html5Qrcode) {
-    if (Date.now()-t0 > timeout) throw new Error("Librería de QR no se cargó");
-    await new Promise(r=>setTimeout(r,100));
-  }
+  blobDownload(document.getElementById("dl-used-csv"), "usados-local.csv", csv);
 }
 
-/* ---------- Cargar tokens.json ---------- */
-async function loadTokens(){
-  // cache-busting para evitar caché agresiva de Safari/GitHub
-  const url = TOKENS_URL + "?v=" + Date.now();
-  const r = await fetch(url, {cache:"no-store"});
-  if (!r.ok) throw new Error("No pude leer tokens.json ("+r.status+")");
-  const j = await r.json();
-  if (!j.tokens || typeof j.tokens!=="object") throw new Error("Formato tokens.json inválido");
-  allowMap = j.tokens;
-}
-
-/* ---------- Validación ---------- */
-function validateToken(t){
-  const token = String(t||"").trim();
+/* Validar un token */
+function validateToken(token){
+  token = String(token||"").trim();
   const exists = Object.prototype.hasOwnProperty.call(allowMap, token);
-  if (!exists) return out("❌ INVÁLIDA (token no listado)","bad");
+  if(!exists) return out("❌ INVÁLIDA (token no en lista)","bad");
   const ya = allowMap[token] === true || usedLocal[token] === true;
-  if (ya) return out("⚠️ YA utilizada","warn");
-  usedLocal[token] = true; // marcar local
+  if(ya) return out("⚠️ YA utilizada","warn");
+  // marcar localmente (1 solo navegador)
+  usedLocal[token] = true;
   localStorage.setItem("qr_usados", JSON.stringify(usedLocal));
   refreshDownloads();
   return out("✅ VÁLIDA • acceso permitido","ok");
 }
 
-/* ---------- Cámara ---------- */
+/* Escaneo */
+function onScanSuccess(text){
+  const now=Date.now(); if(text===last && (now-lastAt)<1500) return; last=text; lastAt=now;
+  validateToken(text);
+}
+
+/* Cámara */
 async function start(){
   try{
-    await waitForLib(); // asegura librería
-    if (!html5) html5 = new Html5Qrcode("reader");
-    $("#start").disabled = $("#stop").disabled = $("#flip").disabled = true;
-
-    // iOS: primer intento con facingMode "environment"
-    try{
-      await html5.start(
-        { facingMode: { exact: "environment" } },
-        { fps: 12, qrbox: 250 },
-        onScanSuccess,
-        onScanError
-      );
-    }catch(_){
-      // Fallback: enumerar cámaras y usar por deviceId
-      cams = await Html5Qrcode.getCameras();
-      if (!cams.length) throw new Error("No hay cámara disponible");
-      await html5.start(
-        { deviceId: { exact: cams[camIdx].id } },
-        { fps: 12, qrbox: 250 },
-        onScanSuccess,
-        onScanError
-      );
-    }
+    if(!window.Html5Qrcode){ return out("❌ Librería de QR no se cargó","bad"); }
+    if(!html5) html5 = new Html5Qrcode("reader");
+    cameras = await Html5Qrcode.getCameras();
+    if(!cameras.length) throw new Error("No hay cámara disponible");
+    await html5.start({deviceId:{exact:cameras[camIdx].id}}, {fps:12, qrbox:250}, onScanSuccess);
     out("Cámara iniciada","ok");
-    $("#stop").disabled = $("#flip").disabled = false;
-  }catch(e){
-    out("❌ No se pudo iniciar la cámara: " + e.message, "bad");
-  }finally{
-    $("#start").disabled = false;
-  }
+  }catch(e){ out("❌ No se pudo iniciar la cámara: "+e.message,"bad"); }
 }
-async function stop(){
-  try{
-    await html5?.stop(); await html5?.clear();
-    out("Cámara detenida","warn");
-  }catch(_){}
-}
+async function stop(){ try{ await html5?.stop(); html5?.clear(); out("Cámara detenida","warn"); }catch(_){} }
 async function flip(){
-  try{
-    cams = cams.length ? cams : await Html5Qrcode.getCameras();
-    if (!cams.length) return out("No hay cámaras","bad");
-    camIdx = (camIdx + 1) % cams.length;
-    await stop(); await start();
-  }catch(e){
-    out("⚠️ No se pudo cambiar cámara: " + e.message, "warn");
-  }
+  if(!cameras.length) cameras = await Html5Qrcode.getCameras();
+  if(!cameras.length) return out("No hay cámaras","bad");
+  camIdx = (camIdx+1) % cameras.length;
+  await stop(); await start();
 }
-function onScanSuccess(text){
-  const now = Date.now();
-  if (text===last && (now-lastAt)<1500) return; // anti-repetición
-  last = text; lastAt = now;
-  validateToken(text);
-  try{ navigator.vibrate?.(60); }catch(_){}
-  try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const o=ctx.createOscillator(), g=ctx.createGain(); o.connect(g); g.connect(ctx.destination);
-    o.frequency.value=880; o.start(); setTimeout(()=>{o.stop();ctx.close()},120);
-  }catch(_){}
-}
-function onScanError(_){ /* silenciar errores de frame */ }
 
-/* ---------- Manual ---------- */
-$("#manual").addEventListener("keydown", e=>{
-  if (e.key==="Enter"){
+/* Manual */
+document.getElementById("manual").addEventListener("keydown", e=>{
+  if(e.key==="Enter"){
     e.preventDefault();
     const v = e.target.value.trim();
-    if (v) validateToken(v);
+    if(v) validateToken(v);
     e.target.select();
   }
 });
 
-/* ---------- Init ---------- */
+/* ---------- 3) Inicialización ---------- */
 (async ()=>{
   try{
     usedLocal = JSON.parse(localStorage.getItem("qr_usados")||"{}");
     refreshDownloads();
-    await waitForLib();            // espera librería
-    await loadTokens();            // carga tokens del repo
-    out("Librería y tokens cargados. Listo para escanear.","ok");
-    $("#start").disabled = false;  // habilitar botones
+
+    // cargar librería y tokens en paralelo
+    await Promise.all([ loadHtml5Qrcode(), loadTokens() ]);
+    out("✅ Listo: librería y tokens cargados. Toca “Iniciar cámara”.","ok");
   }catch(e){
-    out("❌ " + e.message, "bad");
+    out("❌ Error al iniciar: "+e.message,"bad");
+    console.error(e);
   }
 })();
 
-$("#start").onclick = start;
-$("#stop").onclick  = stop;
-$("#flip").onclick  = flip;
+document.getElementById("start").onclick=start;
+document.getElementById("stop").onclick=stop;
+document.getElementById("flip").onclick=flip;
 </script>
 </body>
 </html>

@@ -1,3 +1,25 @@
+<!-- Carga html5-qrcode con fallback y cache-busting -->
+<script>
+(function loadH5QR(){
+  const CDNs = [
+    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.10/html5-qrcode.min.js",
+    "https://unpkg.com/html5-qrcode@2.3.10/html5-qrcode.min.js",
+    "https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js"
+  ];
+  let i = 0;
+  function inject(){
+    const s = document.createElement("script");
+    s.src = CDNs[i] + "?v=2";          // bustear caché de Safari
+    s.defer = true;
+    s.crossOrigin = "anonymous";
+    s.onload = () => { window.__H5QR_READY__ = true; console.log("html5-qrcode OK:", s.src); };
+    s.onerror = () => { console.warn("falló:", s.src); if(++i < CDNs.length) inject(); };
+    document.head.appendChild(s);
+  }
+  inject();
+})();
+</script>
+
 <!doctype html>
 <html lang="es">
 <head>

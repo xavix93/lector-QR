@@ -17,6 +17,19 @@
 })();
 </script>
 
+<script>
+  window.addEventListener("load", async () => {
+    if (!window.Html5Qrcode) { console.error("Html5Qrcode no disponible"); return; }
+    const html5 = new Html5Qrcode("reader");
+    const cams = await Html5Qrcode.getCameras();
+    await html5.start({ deviceId: { exact: cams[0].id } }, { fps: 12, qrbox: 250 },
+      (text) => console.log("QR:", text),
+      (err)  => console.log("scan err:", err)
+    );
+  });
+</script>
+
+
 <!doctype html>
 <html lang="es">
 <head>
